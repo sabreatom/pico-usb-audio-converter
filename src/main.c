@@ -34,9 +34,15 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdint.h>
 
 #include "bsp/board.h"
 #include "tusb.h"
+
+#include "pico/stdlib.h"
+#include "hardware/gpio.h"
+
+#include "synth.h"
 
 //--------------------------------------------------------------------+
 // MACRO CONSTANT TYPEDEF PROTYPES
@@ -71,8 +77,11 @@ audio_control_range_2_n_t(1) volumeRng[CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX+1]; 		
 audio_control_range_4_n_t(1) sampleFreqRng; 						// Sample frequency range state
 
 // Audio test data
-uint16_t test_buffer_audio[CFG_TUD_AUDIO_EP_SZ_IN/2];
-uint16_t startVal = 0;
+int16_t test_buffer_audio[CFG_TUD_AUDIO_EP_SZ_IN/2];
+
+static const uint LED_PIN = PICO_DEFAULT_LED_PIN;
+
+static synth_t synth;
 
 void led_blinking_task(void);
 void audio_task(void);
@@ -81,6 +90,9 @@ void audio_task(void);
 int main(void)
 {
   board_init();
+
+  gpio_init(LED_PIN);
+  gpio_set_dir(LED_PIN, GPIO_OUT);
 
   tusb_init();
 
@@ -92,6 +104,8 @@ int main(void)
   sampleFreqRng.subrange[0].bMin = AUDIO_SAMPLE_RATE;
   sampleFreqRng.subrange[0].bMax = AUDIO_SAMPLE_RATE;
   sampleFreqRng.subrange[0].bRes = 0;
+
+  synth_init(&synth, SINE, AUDIO_SAMPLE_RATE, 100);
 
   while (1)
   {
@@ -399,7 +413,7 @@ bool tud_audio_tx_done_pre_load_cb(uint8_t rhport, uint8_t itf, uint8_t ep_in, u
   (void) ep_in;
   (void) cur_alt_setting;
 
-  tud_audio_write ((uint8_t *)test_buffer_audio, CFG_TUD_AUDIO_EP_SZ_IN);
+  tud_audio_write ((int8_t *)test_buffer_audio, CFG_TUD_AUDIO_EP_SZ_IN);
 
   return true;
 }
@@ -414,7 +428,9 @@ bool tud_audio_tx_done_post_load_cb(uint8_t rhport, uint16_t n_bytes_copied, uin
 
   for (size_t cnt = 0; cnt < CFG_TUD_AUDIO_EP_SZ_IN/2; cnt++)
   {
-    test_buffer_audio[cnt] = startVal++;
+    double sample = synt_getSample(&synth);
+
+    test_buffer_audio[cnt] = (int16_t)(INT16_MAX * sample);
   }
 
   return true;
@@ -424,7 +440,6 @@ bool tud_audio_set_itf_close_EP_cb(uint8_t rhport, tusb_control_request_t const 
 {
   (void) rhport;
   (void) p_request;
-  startVal = 0;
 
   return true;
 }
